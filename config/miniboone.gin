@@ -1,0 +1,10 @@
+train.dataset = 'miniboone'
+train.log_dir = 'logs/UCI/miniboone'
+train.batch_size = 512
+train.steps = 20000
+train.warm_up_steps = 2500
+train.summary_interval = 200
+
+ACE.dropout_proposal = 0.5
+ACE.dropout_energy = 0.5
+ACE.training_noise_scale = 0.005

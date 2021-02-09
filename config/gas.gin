@@ -1,0 +1,4 @@
+train.dataset = 'gas'
+train.log_dir = 'logs/UCI/gas'
+train.batch_size = 512
+train.steps = 800000
