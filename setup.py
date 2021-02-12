@@ -17,7 +17,7 @@ setuptools.setup(
     install_requires=[
         "numpy",
         "tensorflow==2.4",
-        "tensorflow-probability",
+        "tensorflow-probability==0.11",
         "tqdm",
         "click",
         "pandas",
