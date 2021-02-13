@@ -135,7 +135,7 @@ class EnergyNetwork(layers.Layer):
     def call(self, inputs, training=False):
         x_u_i, u_i, x_o, mask, context = inputs
 
-        u_i_one_hot = tf.one_hot(u_i, x_o.shape[-1])
+        u_i_one_hot = tf.one_hot(u_i, x_o.shape[-1], dtype=x_u_i.dtype)
 
         if context is not None:
             h = tf.concat(
