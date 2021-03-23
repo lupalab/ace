@@ -191,7 +191,7 @@ def train_ace(
                     ),
                     global_batch_size=batch_size,
                 )
-                loss += energy_proposal_mse * energy_proposal_mse
+                loss += energy_proposal_regularization * energy_proposal_mse
 
             if use_mixed_precision:
                 loss = optimizer.get_scaled_loss(loss)
