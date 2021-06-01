@@ -1,0 +1,6 @@
+train.dataset = "bsds"
+train.batch_size = 2048
+train.learning_rate = 0.001
+
+ACEModel.dropout = 0.2
+ACEModel.proposal_hidden_units = 1024

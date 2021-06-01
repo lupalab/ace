@@ -1,0 +1,9 @@
+train.dataset = "miniboone"
+train.batch_size = 2048
+train.steps = 15000
+train.learning_rate = 0.001
+train.warm_up_steps = 100
+train.validation_freq = 500
+train.noise_scale = 0.005
+
+ACEModel.dropout = 0.5

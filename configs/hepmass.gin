@@ -1,0 +1,6 @@
+train.dataset = "hepmass"
+train.batch_size = 2048
+train.learning_rate = 0.0005
+train.noise_scale = 0.003
+
+ACEModel.dropout = 0.2

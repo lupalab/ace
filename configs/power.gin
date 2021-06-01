@@ -1,0 +1,9 @@
+train.dataset = "power"
+train.batch_size = 512
+train.learning_rate = 0.0001
+train.noise_scale = 0.003
+train.steps = 1600000
+train.noise_scale = 0.005
+
+ACEModel.energy_regularization = 1.0
+ACEModel.dropout = 0.2

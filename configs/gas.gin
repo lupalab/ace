@@ -1,0 +1,3 @@
+train.dataset = "gas"
+train.batch_size = 2048
+train.learning_rate = 0.001
