@@ -1,8 +1,0 @@
-train.dataset = 'bsds-missing-50'
-train.log_dir = 'logs/UCI/bsds-missing-50'
-train.batch_size = 512
-train.steps = 800000
-
-ACE.dropout_proposal = 0.2
-ACE.dropout_energy = 0.2
-ACE.num_hidden_units_proposal = 1024
