@@ -17,7 +17,7 @@ setuptools.setup(
     install_requires=[
         "tensorflow==2.5",
         "tensorflow-datasets",
-        "tensorflow-probability"
+        "tensorflow-probability",
         "numpy",
         "click",
         "gin-config",
