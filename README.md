@@ -89,8 +89,9 @@ to indicate which features are missing (i.e., will be neither observed nor unobs
 An `ACEOutputs` object will be returned, which contains various outputs of the model.
 
 ```python
-x = np.random.normal((32, 8), dtype=np.float32)
-b = np.random.choice(2, size=(32, 8), dtype=np.float32)
+# Use your real data here in practice.
+x = np.random.normal(size=(32, 8))
+b = np.random.choice(2, size=(32, 8))
 
 outputs = model(
     [x, b],
