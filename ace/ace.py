@@ -497,7 +497,7 @@ class ACEModel(tf.keras.Model):
         return energy_out, proposal_out
 
     def _dim_proposal_sample(self, x_o, observed_mask, index):
-        proposal_dist, _ = self._proposal_net([x_o, observed_mask])
+        proposal_dist, _ = self._proposal_network([x_o, observed_mask])
         samples = proposal_dist.sample()
         return samples[:, index]
 
