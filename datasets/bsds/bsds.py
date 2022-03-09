@@ -1,16 +1,13 @@
+import os
+
+import gdown
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-TRAIN_URL = (
-    "https://drive.google.com/uc?id=1YKOxuYRC-79h9ZUHQ0d7v1bi9ozKE608&export=download"
-)
-VAL_URL = (
-    "https://drive.google.com/uc?id=1ySm47-7yvoQOHi3_Gbvme6vD2hAzt3Yq&export=download"
-)
-TEST_URL = (
-    "https://drive.google.com/uc?id=1ZoqOzNzfSe33cWkjKYeUuJ9C57Nf2YlO&export=download"
-)
+TRAIN_ID = "1YKOxuYRC-79h9ZUHQ0d7v1bi9ozKE608"
+VAL_ID = "1ySm47-7yvoQOHi3_Gbvme6vD2hAzt3Yq"
+TEST_ID = "1ZoqOzNzfSe33cWkjKYeUuJ9C57Nf2YlO"
 
 
 class BSDS(tfds.core.GeneratorBasedBuilder):
@@ -32,13 +29,17 @@ class BSDS(tfds.core.GeneratorBasedBuilder):
         )
 
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-        path = dl_manager.download(
-            {
-                "train": TRAIN_URL,
-                "val": VAL_URL,
-                "test": TEST_URL,
-            }
-        )
+        path = {
+            "train": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "train.txt"), id=TRAIN_ID
+            ),
+            "val": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "val.txt"), id=VAL_ID
+            ),
+            "test": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "test.txt"), id=TEST_ID
+            ),
+        }
 
         return {
             "train": self._generate_examples(path["train"]),

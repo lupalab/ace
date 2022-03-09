@@ -1,16 +1,13 @@
+import os
+
+import gdown
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-TRAIN_URL = (
-    "https://drive.google.com/uc?id=14CJDG_EWpocULPFWde_eLJ_ixlavm3L-&export=download"
-)
-VAL_URL = (
-    "https://drive.google.com/uc?id=1LH7d70p3oScUXNLiWXN1ZzDT9oc3i5mf&export=download"
-)
-TEST_URL = (
-    "https://drive.google.com/uc?id=1QsJ9RW_-VdMIdM87i-_y3VSmBlibcdr1&export=download"
-)
+TRAIN_ID = "14CJDG_EWpocULPFWde_eLJ_ixlavm3L-"
+VAL_ID = "1LH7d70p3oScUXNLiWXN1ZzDT9oc3i5mf"
+TEST_ID = "1QsJ9RW_-VdMIdM87i-_y3VSmBlibcdr1"
 
 
 class Miniboone(tfds.core.GeneratorBasedBuilder):
@@ -32,13 +29,17 @@ class Miniboone(tfds.core.GeneratorBasedBuilder):
         )
 
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-        path = dl_manager.download(
-            {
-                "train": TRAIN_URL,
-                "val": VAL_URL,
-                "test": TEST_URL,
-            }
-        )
+        path = {
+            "train": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "train.txt"), id=TRAIN_ID
+            ),
+            "val": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "val.txt"), id=VAL_ID
+            ),
+            "test": gdown.download(
+                output=os.path.join(dl_manager.download_dir, "test.txt"), id=TEST_ID
+            ),
+        }
 
         return {
             "train": self._generate_examples(path["train"]),

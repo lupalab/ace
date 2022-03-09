@@ -23,5 +23,6 @@ setuptools.setup(
         "gin-config",
         "loguru",
         "tqdm",
+        "gdown",
     ],
 )
