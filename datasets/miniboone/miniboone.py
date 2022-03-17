@@ -48,8 +48,7 @@ class Miniboone(tfds.core.GeneratorBasedBuilder):
         }
 
     def _generate_examples(self, path):
-        file = tf.io.gfile.GFile(path)
-        data = np.loadtxt(file, np.float32)
+        data = np.loadtxt(path, np.float32)
 
         for i, x in enumerate(data):
             yield i, dict(features=x)
