@@ -15,7 +15,7 @@ setuptools.setup(
     author="Ryan Strauss",
     author_email="rrs@cs.unc.edu",
     install_requires=[
-        "tensorflow==2.5",
+        "tensorflow>=2.5",
         "tensorflow-datasets",
         "tensorflow-probability",
         "numpy",
