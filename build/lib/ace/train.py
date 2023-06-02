@@ -109,7 +109,7 @@ def train(
             ),
             tf.keras.callbacks.ModelCheckpoint(
                 os.path.join(logdir, "weights.h5"),
-                monitor="val_proposal_ll",
+                monitor="val_energy_ll",
                 mode="max",
                 save_best_only=True,
                 save_weights_only=True,

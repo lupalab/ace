@@ -1,0 +1,9 @@
+tensorflow>=2.5
+tensorflow-datasets
+tensorflow-probability
+numpy
+click
+gin-config
+loguru
+tqdm
+gdown

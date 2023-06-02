@@ -11,7 +11,6 @@ def proposal_network(
     hidden_units: int = 512,
     activation: str = "relu",
     dropout: float = 0.0,
-    linear_output = None,
     **kwargs
 ):
     x_o = tfl.Input((num_features,), name="x_o")
@@ -29,9 +28,7 @@ def proposal_network(
         h = tfl.Add()([h, res])
 
     h = tfl.Activation(activation)(h)
-    if linear_output is None:
-        linear_output = tfl.Dense(num_features * (3 * mixture_components + context_units))
-    h = linear_output(h)
+    h = tfl.Dense(num_features * (3 * mixture_components + context_units))(h)
     h = tfl.Reshape([num_features, 3 * mixture_components + context_units])(h)
 
     context = h[..., :context_units]
