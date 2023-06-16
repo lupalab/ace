@@ -10,7 +10,7 @@ import tensorflow_datasets as tfds
 from loguru import logger
 from tensorflow.keras import mixed_precision
 
-from ace.ace import ACEModel
+from ace.ace_proposal import ACEModel
 from ace.masking import get_add_mask_fn, UniformMaskGenerator
 from ace.utils import enable_gpu_growth, WarmUpCallback
 
@@ -46,9 +46,12 @@ def train(
     batch_size=512,
     noise_scale=0.001,
     learning_rate=5e-4,
-    steps=1000000,
-    warm_up_steps=10000,
-    validation_freq=5000,
+    # steps=1000000,
+    # warm_up_steps=10000,
+    # validation_freq=5000,
+    steps=2,
+    warm_up_steps=1,
+    validation_freq=1,
     validation_steps=None,
 ):
     available_gpus = len(tf.config.list_physical_devices("GPU"))
@@ -83,11 +86,9 @@ def train(
     class LoggingCallback(tf.keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             logger.info(
-                "[Step {}]  Energy LL: {:.3f} | Proposal LL: {:.3f} | Val Energy LL: {:.3f} | Val Proposal LL: {:.3f}",
+                "[Step {}]  Proposal LL: {:.3f} | Val Proposal LL: {:.3f}",
                 validation_freq * epoch,
-                logs["energy_ll"],
                 logs["proposal_ll"],
-                logs["val_energy_ll"],
                 logs["val_proposal_ll"],
             )
 
@@ -109,7 +110,7 @@ def train(
             ),
             tf.keras.callbacks.ModelCheckpoint(
                 os.path.join(logdir, "weights.h5"),
-                monitor="val_energy_ll",
+                monitor="val_proposal_ll",
                 mode="max",
                 save_best_only=True,
                 save_weights_only=True,

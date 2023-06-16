@@ -3,10 +3,10 @@ import os
 from typing import Dict, Any
 
 import tensorflow as tf
+
 from gin.config_parser import ConfigParser
 
 from ace import ACEModel
-
 
 def enable_gpu_growth():
     """Enables GPU growth for TensorFlow."""
@@ -68,3 +68,6 @@ class WarmUpCallback(tf.keras.callbacks.Callback):
             self.model._alpha.assign(1.0)
 
         self._total_batches += 1
+
+
+

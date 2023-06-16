@@ -28,7 +28,7 @@ def nrmse_score(
     error = (imputations - true_data) ** 2
     mse = np.sum(error, axis=-2) / np.count_nonzero(1.0 - observed_mask, axis=-2)
     nrmse = np.sqrt(mse) / np.std(true_data, axis=-2)
-    return np.mean(nrmse, axis=-1)
+    return np.nanmean(nrmse, axis=-1)
 
 
 def _evaluate_likelihoods(
@@ -102,10 +102,11 @@ def evaluate_imputation(
     model: ACEModel,
     dataset: tf.data.Dataset,
     mask_generator: MaskGenerator,
+    mask_fn = None,
     num_trials: int = 1,
     num_importance_samples: int = 100,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    add_mask_fn = get_add_mask_fn(mask_generator)
+    add_mask_fn = get_add_mask_fn(mask_generator) if mask_fn is None else get_add_mask_fn(mask_fn)
     dataset = dataset.map(add_mask_fn)
 
     energy_imputations = []

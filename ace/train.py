@@ -10,7 +10,7 @@ import tensorflow_datasets as tfds
 from loguru import logger
 from tensorflow.keras import mixed_precision
 
-from ace.ace import ACEModel
+from ace.ace_proposal import ACEModel
 from ace.masking import get_add_mask_fn, UniformMaskGenerator
 from ace.utils import enable_gpu_growth, WarmUpCallback
 
@@ -49,6 +49,9 @@ def train(
     steps=1000000,
     warm_up_steps=10000,
     validation_freq=5000,
+    # steps=2,
+    # warm_up_steps=1,
+    # validation_freq=1,
     validation_steps=None,
 ):
     available_gpus = len(tf.config.list_physical_devices("GPU"))
@@ -63,7 +66,7 @@ def train(
     )
 
     with distributed_strategy.scope():
-        model = ACEModel(num_features)
+        model = ACEModel(num_features, feat_network=False)
 
     logger.info("Constructed ACE model with {} parameters.", model.count_params())
 
@@ -83,11 +86,9 @@ def train(
     class LoggingCallback(tf.keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             logger.info(
-                "[Step {}]  Energy LL: {:.3f} | Proposal LL: {:.3f} | Val Energy LL: {:.3f} | Val Proposal LL: {:.3f}",
+                "[Step {}]  Proposal LL: {:.3f} | Val Proposal LL: {:.3f}",
                 validation_freq * epoch,
-                logs["energy_ll"],
                 logs["proposal_ll"],
-                logs["val_energy_ll"],
                 logs["val_proposal_ll"],
             )
 
@@ -150,7 +151,7 @@ def train(
 )
 @click.option("--eager", is_flag=True, help="Whether or not to use eager execution.")
 def _main(config, logdir, growth, use_mixed_precision, eager):
-    os.makedirs(logdir)
+    os.makedirs(logdir, exist_ok=True)
 
     logger.remove()
     fmt = "<cyan>[{time:YYYY-MM-DD:HH:mm:ss}]</> <level>{level} -- {message}</>"
@@ -159,6 +160,9 @@ def _main(config, logdir, growth, use_mixed_precision, eager):
 
     gin.parse_config_file(config)
     gin.finalize()
+
+    gpus = tf.config.list_physical_devices('GPU')
+    tf.config.set_visible_devices(gpus[2:], "GPU")
 
     tf.config.run_functions_eagerly(eager)
 
@@ -169,7 +173,10 @@ def _main(config, logdir, growth, use_mixed_precision, eager):
         policy = mixed_precision.Policy("mixed_float16")
         mixed_precision.set_global_policy(policy)
 
-    train(logdir)
+    train(logdir,
+        warm_up_steps=1000,
+        validation_freq=500,
+        )
 
 
 if __name__ == "__main__":
