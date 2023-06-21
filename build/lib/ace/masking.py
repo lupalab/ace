@@ -21,17 +21,6 @@ class MaskGenerator(ABC):
         pass
 
 
-class FixedMaskGenerator(MaskGenerator):
-    def __init__(self, mask, **kwargs):
-        super().__init__(**kwargs)
-
-        self.mask = mask
-
-    def call(self, shape):
-        assert self.mask.shape[-1] == shape[-1]
-        return np.tile(self.mask, (shape[0], 1))
-
-
 class BernoulliMaskGenerator(MaskGenerator):
     def __init__(self, p=0.5, **kwargs):
         super().__init__(**kwargs)

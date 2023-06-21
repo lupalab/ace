@@ -2,9 +2,7 @@ README.md
 setup.py
 ace/__init__.py
 ace/ace.py
-ace/ace_proposal.py
 ace/evaluation.py
-ace/finetune.py
 ace/masking.py
 ace/networks.py
 ace/test.py

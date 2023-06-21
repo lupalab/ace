@@ -4,44 +4,23 @@ import gin
 import numpy as np
 import tensorflow as tf
 
-from tensorflow.keras import layers as tfl
-
-from tensorflow.keras.regularizers import Regularizer
-from tensorflow.keras import backend
-
-from ace.networks import proposal_network, energy_network, proposal_and_feature_network
-
-class BaselineRegularizer(Regularizer):
-    def __init__(self, penalty, baseline=None):
-
-        self.penalty = penalty
-
-        if baseline is not None:
-            self.baseline = backend.cast_to_floatx(baseline)
-        else:
-            self.baseline = None
-    
-    def set_baseline(self, baseline):
-        self.baseline = backend.cast_to_floatx(baseline)
-    
-    def __call__(self, x):
-        return tf.keras.losses.MeanSquaredError(self.baseline, x) * self.penalty
+from ace.networks import proposal_network, energy_network
 
 
 class ACEOutput(NamedTuple):
     """Contains the outputs of a forward pass of an ACEModel."""
 
-    # energy_ll: tf.Tensor
-    # unnormalized_energy_ll: tf.Tensor
+    energy_ll: tf.Tensor
+    unnormalized_energy_ll: tf.Tensor
     proposal_ll: tf.Tensor
-    # log_ratios: tf.Tensor
+    log_ratios: tf.Tensor
 
     proposal_samples: tf.Tensor
-    # proposal_samples_log_ratios: tf.Tensor
-    # log_normalizers: tf.Tensor
+    proposal_samples_log_ratios: tf.Tensor
+    log_normalizers: tf.Tensor
 
     proposal_mean: tf.Tensor
-    # energy_mean: tf.Tensor
+    energy_mean: tf.Tensor
 
 
 @gin.configurable(denylist=["num_features"])
@@ -92,13 +71,9 @@ class ACEModel(tf.keras.Model):
         energy_clip: float = 30.0,
         training_importance_samples: int = 20,
         energy_regularization: float = 0.0,
-        feat_network = True,
-        regpen=0.01,
         **kwargs,
     ):
         super().__init__(**kwargs)
-
-        print("Creating model...")
 
         self._config = locals()
         del self._config["self"]
@@ -110,43 +85,19 @@ class ACEModel(tf.keras.Model):
         self._training_importance_samples = training_importance_samples
         self._energy_regularization = energy_regularization
 
-        self.finetune_kernel_reg = BaselineRegularizer(penalty=regpen)
-        self.finetune_bias_reg = BaselineRegularizer(penalty=regpen)
+        self.finetune_layer = linear_output = tfl.Dense(num_features * (3 * mixture_components + context_units))
 
-        self.finetune_layer = tfl.Dense(
-            num_features * (3 * mixture_components + context_units), 
-            kernel_regularizer=self.finetune_kernel_reg,
-            bias_regularizer=self.finetune_bias_reg,
-            name="finetune_linear")
-
-        print("Created finetune layer...")
-
-        self._feature_network = None
-
-        if feat_network:
-            self._proposal_network, self._feature_network = proposal_and_feature_network(
-                num_features,
-                context_units,
-                mixture_components,
-                proposal_residual_blocks,
-                proposal_hidden_units,
-                activation,
-                dropout,
-                self.finetune_layer,
-                name="proposal_network",
-            )
-        else:
-            self._proposal_network= proposal_network(
-                    num_features,
-                    context_units,
-                    mixture_components,
-                    proposal_residual_blocks,
-                    proposal_hidden_units,
-                    activation,
-                    dropout,
-                    self.finetune_layer,
-                    name="proposal_network",
-                )
+        self._proposal_network = proposal_network(
+            num_features,
+            context_units,
+            mixture_components,
+            proposal_residual_blocks,
+            proposal_hidden_units,
+            activation,
+            dropout,
+            self.finetune_layer,
+            name="proposal_network",
+        )
 
         # self._energy_network = energy_network(
         #     num_features,
@@ -220,53 +171,6 @@ class ACEModel(tf.keras.Model):
 
     #     return x_u_i, u_i, tiled_context
 
-
-    def feats(
-        self,
-        inputs,
-        missing_mask=None,
-        num_importance_samples=10,
-        training=None,
-        selected_features=None,
-    ) -> ACEOutput:
-        """Forward pass through the ACE model.
-
-        Args:
-            inputs: A list that contains the following:
-                x: A tensor of shape `[batch_size, data_dim]` that contains the values
-                    of the features, both observed and unobserved.
-                observed_mask: A tensor of shape `[batch_size, data_dim]` that is 1
-                    for features which are observed and 0 otherwise.
-            missing_mask: Optional. A tensor of shape `[batch_size, data_dim]`
-                that is 1 for features which are missing and 0 otherwise.
-            training: A boolean indicating whether or not training mode should be used.
-            num_importance_samples: The number of importance samples to use.
-            selected_features: A rank 1 or rank 2 integer tensor that specifies which
-                features should be processed by the energy network. By default, all
-                features are batched together and sent through the energy network. This
-                is necessary during training due to arbitrarily-sized observed sets,
-                but it is computationally wasteful. During inference, we often only need
-                energies for a specific dimension at a time. If this tensor has the
-                shape `[num_inds]` then energies will only be computed for the specified
-                indices for all of the instances. If this tensor has the
-                shape `[batch_size, num_inds]`, then the same is true, but different
-                indices can be specified for different instances. If this argument is
-                provided, the shapes of the outputs will be affected accordingly.
-
-        Returns:
-            An ACEOutput tuple.
-        """
-        x_o, x_u, observed_mask, query = self._process_inputs(
-            inputs[0], inputs[1], missing_mask
-        )
-
-        hidden_feats = self._feature_network(
-            tf.concat([x_o, observed_mask], axis=-1), training=training
-        )
-
-        return hidden_feats
-
-
     def call(
         self,
         inputs,
@@ -316,15 +220,15 @@ class ACEModel(tf.keras.Model):
         proposal_samples = tf.stop_gradient(
             proposal_dist.sample(num_importance_samples)
         )
-        # proposal_samples_proposal_ll = tf.stop_gradient(
-        #     proposal_dist.log_prob(proposal_samples)
-        # )
+        proposal_samples_proposal_ll = tf.stop_gradient(
+            proposal_dist.log_prob(proposal_samples)
+        )
         proposal_samples = tf.transpose(proposal_samples, [1, 0, 2])
-        # proposal_samples_proposal_ll = tf.transpose(
-        #     proposal_samples_proposal_ll, [1, 0, 2]
-        # )
+        proposal_samples_proposal_ll = tf.transpose(
+            proposal_samples_proposal_ll, [1, 0, 2]
+        )
         proposal_samples *= tf.expand_dims(tf.cast(query, tf.float32), 1)
-        # proposal_samples_proposal_ll *= tf.expand_dims(tf.cast(query, tf.float32), 1)
+        proposal_samples_proposal_ll *= tf.expand_dims(tf.cast(query, tf.float32), 1)
 
         proposal_mean = proposal_dist.mean() * tf.cast(query, tf.float32)
 
@@ -392,9 +296,9 @@ class ACEModel(tf.keras.Model):
         # energy_mean = tf.reduce_sum(is_weights * proposal_samples, axis=1)
 
         proposal_samples *= tf.expand_dims(query, 1)
-        # proposal_samples_log_ratios *= tf.expand_dims(query, 1)
+        proposal_samples_log_ratios *= tf.expand_dims(query, 1)
         proposal_mean *= query
-        # energy_mean *= query
+        energy_mean *= query
 
         return ACEOutput(
             # energy_ll,
@@ -591,8 +495,8 @@ class ACEModel(tf.keras.Model):
         pll_out.close()
 
         # energy_out = tf.transpose(ell_out.stack())
+        energy_out = None
         proposal_out = tf.transpose(pll_out.stack())
-        energy_out = tf.zeros_like(proposal_out)
 
         return energy_out, proposal_out
 
@@ -638,7 +542,7 @@ class ACEModel(tf.keras.Model):
 
             curr_x_o = tf.tensor_scatter_nd_update(curr_x_o, update_inds, dim_samples)
             curr_observed_mask = tf.tensor_scatter_nd_update(
-                curr_observed_mask, update_inds, tf.ones(dim_samples.shape)
+                curr_observed_mask, update_inds, tf.ones_like(dim_samples)
             )
 
         return curr_x_o
@@ -718,9 +622,8 @@ class ACEModel(tf.keras.Model):
             [x_o, observed_mask], num_importance_samples=num_importance_samples
         )
         # energy_imputations = x_o + outputs.energy_mean
-        
+        energy_imputations = None
         proposal_imputations = x_o + outputs.proposal_mean
-        energy_imputations = tf.zeros_like(proposal_imputations)
         return energy_imputations, proposal_imputations
 
 

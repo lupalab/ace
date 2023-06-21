@@ -17,8 +17,8 @@ def proposal_network(
     x_o = tfl.Input((num_features,), name="x_o")
     observed_mask = tfl.Input((num_features,), name="observed_mask")
 
-    full_input = tfl.Concatenate()([x_o, observed_mask])
-    h = tfl.Dense(hidden_units)(full_input)
+    h = tfl.Concatenate()([x_o, observed_mask])
+    h = tfl.Dense(hidden_units)(h)
 
     for _ in range(residual_blocks):
         res = tfl.Activation(activation)(h)
@@ -31,11 +31,11 @@ def proposal_network(
     h = tfl.Activation(activation)(h)
     if linear_output is None:
         linear_output = tfl.Dense(num_features * (3 * mixture_components + context_units))
-    
-    o = linear_output(h)
-    o = tfl.Reshape([num_features, 3 * mixture_components + context_units])(o)
-    context = o[..., :context_units]
-    params = o[..., context_units:]
+    h = linear_output(h)
+    h = tfl.Reshape([num_features, 3 * mixture_components + context_units])(h)
+
+    context = h[..., :context_units]
+    params = h[..., context_units:]
 
     def create_proposal_dist(t):
         logits = t[..., :mixture_components]
@@ -54,68 +54,6 @@ def proposal_network(
     proposal_dist = tfp.layers.DistributionLambda(create_proposal_dist)(params)
 
     return tf.keras.Model([x_o, observed_mask], [proposal_dist, context], **kwargs)
-
-
-def proposal_and_feature_network(
-    num_features: int,
-    context_units: int = 64,
-    mixture_components: int = 10,
-    residual_blocks: int = 4,
-    hidden_units: int = 512,
-    activation: str = "relu",
-    dropout: float = 0.0,
-    linear_output = None,
-    **kwargs
-):
-    print("Creating proposal network...")
-
-    x_o = tfl.Input((num_features,), name="x_o")
-    observed_mask = tfl.Input((num_features,), name="observed_mask")
-
-    full_input = tfl.Concatenate()([x_o, observed_mask])
-    h = tfl.Dense(hidden_units)(full_input)
-
-    for _ in range(residual_blocks):
-        res = tfl.Activation(activation)(h)
-        res = tfl.Dense(hidden_units)(res)
-        res = tfl.Activation(activation)(res)
-        res = tfl.Dropout(dropout)(res)
-        res = tfl.Dense(hidden_units)(res)
-        h = tfl.Add()([h, res])
-
-    print("Created residual blocks...")
-
-    h = tfl.Activation(activation)(h)
-    if linear_output is None:
-        linear_output = tfl.Dense(num_features * (3 * mixture_components + context_units))
-    
-    o = linear_output(h)
-    o = tfl.Reshape([num_features, 3 * mixture_components + context_units])(o)
-
-    print("Created linear output...")
-
-    context = o[..., :context_units]
-    params = o[..., context_units:]
-
-    def create_proposal_dist(t):
-        logits = t[..., :mixture_components]
-        means = t[..., mixture_components:-mixture_components]
-        scales = tf.nn.softplus(t[..., -mixture_components:]) + 1e-3
-        components_dist = tfp.distributions.Normal(
-            loc=tf.cast(means, tf.float32), scale=tf.cast(scales, tf.float32)
-        )
-        return tfp.distributions.MixtureSameFamily(
-            mixture_distribution=tfp.distributions.Categorical(
-                logits=tf.cast(logits, tf.float32)
-            ),
-            components_distribution=components_dist,
-        )
-
-    proposal_dist = tfp.layers.DistributionLambda(create_proposal_dist)(params)
-
-    print("Created proposal distribution...")
-
-    return tf.keras.Model([x_o, observed_mask], [proposal_dist, context], **kwargs), tf.keras.Model([full_input], [h], **kwargs)
 
 
 def energy_network(

@@ -28,29 +28,8 @@ class FixedMaskGenerator(MaskGenerator):
         self.mask = mask
 
     def call(self, shape):
-
-        if shape.shape[0] is None or shape.shape[0] > 0:
-            # assert self.mask.shape[-1] == shape[-1]
-            return tf.tile(self.mask, [tf.squeeze(shape[0]), 1])
-        return tf.tile(self.mask, [shape, 1])
-    
-    def __call__(self, shape):
-        return self.call(shape)
-    
-
-class SubsetMaskGenerator(MaskGenerator):
-    def __init__(self, mask, **kwargs):
-        super().__init__(**kwargs)
-
-        self.p = 0.5
-        self.mask = mask
-
-    def call(self, shape):
-
-        return tf.tile(self.mask, [tf.squeeze(shape[0]), 1]) * self._rng.binomial(1, self.p, size=shape)
-    
-    def __call__(self, shape):
-        return self.call(shape)
+        assert self.mask.shape[-1] == shape[-1]
+        return np.tile(self.mask, (shape[0], 1))
 
 
 class BernoulliMaskGenerator(MaskGenerator):
