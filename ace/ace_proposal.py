@@ -4,23 +4,44 @@ import gin
 import numpy as np
 import tensorflow as tf
 
+from tensorflow.keras import layers as tfl
+
+from tensorflow.keras.regularizers import Regularizer
+from tensorflow.keras import backend
+
 from ace.networks import proposal_network, energy_network
+
+class BaselineRegularizer(Regularizer):
+    def __init__(self, penalty, baseline=None):
+
+        self.penalty = penalty
+
+        if baseline is not None:
+            self.baseline = backend.cast_to_floatx(baseline)
+        else:
+            self.baseline = None
+
+    def set_baseline(self, baseline):
+        self.baseline = backend.cast_to_floatx(baseline)
+
+    def __call__(self, x):
+        return tf.keras.losses.MeanSquaredError(self.baseline, x) * self.penalty
 
 
 class ACEOutput(NamedTuple):
     """Contains the outputs of a forward pass of an ACEModel."""
 
-    energy_ll: tf.Tensor
-    unnormalized_energy_ll: tf.Tensor
+    # energy_ll: tf.Tensor
+    # unnormalized_energy_ll: tf.Tensor
     proposal_ll: tf.Tensor
-    log_ratios: tf.Tensor
+    # log_ratios: tf.Tensor
 
     proposal_samples: tf.Tensor
-    proposal_samples_log_ratios: tf.Tensor
-    log_normalizers: tf.Tensor
+    # proposal_samples_log_ratios: tf.Tensor
+    # log_normalizers: tf.Tensor
 
     proposal_mean: tf.Tensor
-    energy_mean: tf.Tensor
+    # energy_mean: tf.Tensor
 
 
 @gin.configurable(denylist=["num_features"])
@@ -71,6 +92,7 @@ class ACEModel(tf.keras.Model):
         energy_clip: float = 30.0,
         training_importance_samples: int = 20,
         energy_regularization: float = 0.0,
+        proposal_regularization: float = 0.01,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -85,7 +107,14 @@ class ACEModel(tf.keras.Model):
         self._training_importance_samples = training_importance_samples
         self._energy_regularization = energy_regularization
 
-        self.finetune_layer = linear_output = tfl.Dense(num_features * (3 * mixture_components + context_units))
+        self.finetune_kernel_reg = BaselineRegularizer(penalty=proposal_regularization)
+        self.finetune_bias_reg = BaselineRegularizer(penalty=proposal_regularization)
+
+        self.finetune_layer = tfl.Dense(
+            num_features * (3 * mixture_components + context_units), 
+            kernel_regularizer=self.finetune_kernel_reg,
+            bias_regularizer=self.finetune_bias_reg,
+            name="finetune_linear")
 
         self._proposal_network = proposal_network(
             num_features,
@@ -220,15 +249,15 @@ class ACEModel(tf.keras.Model):
         proposal_samples = tf.stop_gradient(
             proposal_dist.sample(num_importance_samples)
         )
-        proposal_samples_proposal_ll = tf.stop_gradient(
-            proposal_dist.log_prob(proposal_samples)
-        )
+        # proposal_samples_proposal_ll = tf.stop_gradient(
+        #     proposal_dist.log_prob(proposal_samples)
+        # )
         proposal_samples = tf.transpose(proposal_samples, [1, 0, 2])
-        proposal_samples_proposal_ll = tf.transpose(
-            proposal_samples_proposal_ll, [1, 0, 2]
-        )
+        # proposal_samples_proposal_ll = tf.transpose(
+        #     proposal_samples_proposal_ll, [1, 0, 2]
+        # )
         proposal_samples *= tf.expand_dims(tf.cast(query, tf.float32), 1)
-        proposal_samples_proposal_ll *= tf.expand_dims(tf.cast(query, tf.float32), 1)
+        # proposal_samples_proposal_ll *= tf.expand_dims(tf.cast(query, tf.float32), 1)
 
         proposal_mean = proposal_dist.mean() * tf.cast(query, tf.float32)
 
@@ -296,9 +325,9 @@ class ACEModel(tf.keras.Model):
         # energy_mean = tf.reduce_sum(is_weights * proposal_samples, axis=1)
 
         proposal_samples *= tf.expand_dims(query, 1)
-        proposal_samples_log_ratios *= tf.expand_dims(query, 1)
+        # proposal_samples_log_ratios *= tf.expand_dims(query, 1)
         proposal_mean *= query
-        energy_mean *= query
+        # energy_mean *= query
 
         return ACEOutput(
             # energy_ll,
