@@ -651,8 +651,8 @@ class ACEModel(tf.keras.Model):
             [x_o, observed_mask], num_importance_samples=num_importance_samples
         )
         # energy_imputations = x_o + outputs.energy_mean
-        energy_imputations = None
         proposal_imputations = x_o + outputs.proposal_mean
+        energy_imputations = tf.zeros_like(proposal_imputations)
         return energy_imputations, proposal_imputations
 
 

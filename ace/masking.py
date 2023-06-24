@@ -4,6 +4,11 @@ import numpy as np
 import tensorflow as tf
 
 
+def enumerate_mask(num_features, mask_idx):
+    assert mask_idx < 2**num_features
+    binary = np.array([int(i) for i in bin(mask_idx)[2:].zfill(num_features)])
+    return binary #.astype("float32")
+
 class MaskGenerator(ABC):
     def __init__(
         self,
@@ -28,8 +33,10 @@ class FixedMaskGenerator(MaskGenerator):
         self.mask = mask
 
     def call(self, shape):
-        assert self.mask.shape[-1] == shape[-1]
-        return np.tile(self.mask, (shape[0], 1))
+        return np.stack([self.mask] * shape[0])
+
+    # def __call__(self, shape):
+    #     return self.call(shape)
 
 
 class BernoulliMaskGenerator(MaskGenerator):

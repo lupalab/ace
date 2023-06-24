@@ -2,6 +2,7 @@ import json
 import math
 import os
 import sys
+import numpy as np
 
 import click
 import gin
@@ -11,38 +12,54 @@ from loguru import logger
 from tensorflow.keras import mixed_precision
 
 from ace.ace_proposal import ACEModel
-from ace.masking import get_add_mask_fn, UniformMaskGenerator
-from ace.utils import enable_gpu_growth, WarmUpCallback
+from ace.masking import get_add_mask_fn, FixedMaskGenerator, BernoulliMaskGenerator, enumerate_mask
+from ace.utils import enable_gpu_growth, WarmUpCallback, get_config_dict
+from ace.evaluation import evaluate_imputation
+
+class FinetunePerformanceTracker:
+    def __init__(self, eval_function):
+        self.eval_function = eval_function
+        self.performance_history = []
+
+    def evaluate(self, *args):
+        result = self.eval_function(*args)
+        self.performance_history.append(result)
+        return result
 
 
-def load_datasets(dataset, batch_size, noise_scale):
+def load_datasets(dataset, batch_size, noise_scale, mask_fn):
     ds = tfds.load(dataset)
     train = ds["train"].map(lambda x: x["features"]).shuffle(10000)
     val = ds["val"].map(lambda x: x["features"])
+    test = ds["test"].map(lambda x: x["features"])
     train = train.batch(batch_size, drop_remainder=True).repeat()
     val = val.batch(batch_size)
+    test = test.batch(batch_size)
 
     def add_noise(t):
         return t + tf.random.normal(tf.shape(t), stddev=noise_scale, dtype=t.dtype)
 
     train = train.map(add_noise)
 
-    add_mask_fn = get_add_mask_fn(UniformMaskGenerator())
+    add_mask_fn = get_add_mask_fn(mask_fn)
     train = train.map(add_mask_fn)
     val = val.map(add_mask_fn)
+    test = test.map(add_mask_fn)
 
     train = train.prefetch(tf.data.AUTOTUNE)
     val = val.prefetch(tf.data.AUTOTUNE)
+    test = test.prefetch(tf.data.AUTOTUNE)
 
     num_features = train.element_spec[0].shape[-1]
 
-    return train, val, num_features
+    return train, val, test, num_features
 
 
 @gin.configurable(denylist=["logdir"])
 def finetune(
     logdir,
     model_dir,
+    masks,
     dataset=gin.REQUIRED,
     batch_size=512,
     noise_scale=0.001,
@@ -56,7 +73,13 @@ def finetune(
     if available_gpus > 0:
         logger.info("Using {} found GPU(s).", available_gpus)
 
-    train_data, val_data, num_features = load_datasets(dataset, batch_size, noise_scale)
+    current_mask = masks[0]
+    fixed_mask_generator = FixedMaskGenerator(current_mask)
+    fixed_mask_fn = lambda shape: fixed_mask_generator(shape)
+    bern_mask_generator = BernoulliMaskGenerator()
+
+    dataset = get_config_dict(model_dir)["train"]["dataset"]
+    train_data, val_data, test_data, num_features = load_datasets(dataset, batch_size, noise_scale, mask_fn=fixed_mask_generator)
 
     default_strategy = tf.distribute.get_strategy()
     distributed_strategy = (
@@ -67,8 +90,8 @@ def finetune(
         model = ACEModel(num_features)
     
     model.load_weights(os.path.join(model_dir, "weights.h5"))
-    model.trainable = False
-    model.finetune_layer.trainable = True
+    # model._proposal_network.trainable = False
+    # model.finetune_layer.trainable = True
     baseline_weights = model.finetune_layer.get_weights()
 
     baseline_kernel = baseline_weights[0]
@@ -92,6 +115,25 @@ def finetune(
 
     model.compile(optimizer)
 
+    def impute_metric():
+        (   energy_nrmse,
+            proposal_nrmse,
+            energy_imputations,
+            proposal_imputations,
+        ) = evaluate_imputation(
+            model,
+            test_data,
+            fixed_mask_generator,
+            mask_fn=fixed_mask_fn,
+            num_trials=1,
+            num_importance_samples=20000,
+        )
+
+        print(proposal_nrmse)
+
+        return np.mean(proposal_nrmse)
+
+
     class LoggingCallback(tf.keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             logger.info(
@@ -102,37 +144,79 @@ def finetune(
                 # logs["val_energy_ll"],
                 logs["val_proposal_ll"],
             )
+            logger.info(
+                f"Imputation NRMSE: {tracker.evaluate()}"
+            )
 
     logger.info("Beginning training...")
 
-    history = model.fit(
-        train_data,
-        validation_data=val_data,
-        validation_steps=validation_steps,
-        epochs=int(math.ceil(steps / validation_freq)),
-        steps_per_epoch=validation_freq,
-        verbose=0,
-        callbacks=[
-            tf.keras.callbacks.TensorBoard(
-                logdir,
-                update_freq=validation_freq,
-                write_graph=False,
-                profile_batch=(5, 10),
-            ),
-            # tf.keras.callbacks.ModelCheckpoint(
-            #     os.path.join(logdir, "weights.h5"),
-            #     monitor="val_energy_ll",
-            #     mode="max",
-            #     save_best_only=True,
-            #     save_weights_only=True,
-            # ),
-            WarmUpCallback(warm_up_steps),
-            LoggingCallback(),
-        ],
-    )
+    mask_histories = []
 
-    with open(os.path.join(logdir, "history.json"), "w") as fp:
-        json.dump(history.history, fp)
+    for m in range(len(masks)):
+
+        current_mask = masks[m]
+
+        print(current_mask)
+
+        if np.prod(current_mask) > 0:
+            continue
+
+        fixed_mask_generator = FixedMaskGenerator(current_mask)
+
+        # impute_features = lambda: tf.reshape(tf.where(1-tf.squeeze(current_mask)), (-1))
+
+        train_data, val_data, test_data, num_features = load_datasets(dataset, batch_size, noise_scale, mask_fn=fixed_mask_generator)
+
+        train_X, train_B, *train_M = next(iter(train_data))
+        val_X, val_B, *val_M = next(iter(val_data))
+
+        tracker = FinetunePerformanceTracker(impute_metric)
+
+        with distributed_strategy.scope():
+            # model.finetune_layer.set_weights(baseline_weights)
+            model.load_weights(os.path.join(model_dir, "weights.h5"))
+
+            for var in optimizer.variables():
+                var.assign(tf.zeros_like(var))
+        
+        logger.info(
+                f"Pretrained NRMSE: {tracker.evaluate()}"
+            )
+
+        logger.info("Beginning finetuning...")
+
+        history = model.fit(
+            train_data,
+            validation_data=val_data,
+            validation_steps=validation_steps,
+            epochs=int(math.ceil(steps / validation_freq)),
+            steps_per_epoch=validation_freq,
+            verbose=0,
+            callbacks=[
+                tf.keras.callbacks.TensorBoard(
+                    logdir,
+                    update_freq=validation_freq,
+                    write_graph=False,
+                    profile_batch=(5, 10),
+                ),
+                # tf.keras.callbacks.ModelCheckpoint(
+                #     os.path.join(logdir, "weights.h5"),
+                #     monitor="val_energy_ll",
+                #     mode="max",
+                #     save_best_only=True,
+                #     save_weights_only=True,
+                # ),
+                WarmUpCallback(warm_up_steps),
+                LoggingCallback(),
+            ],
+        )
+
+        mask_histories.append(tracker.performance_history)
+
+    # with open(os.path.join(logdir, "history.json"), "w") as fp:
+    #     json.dump(history.history, fp)
+
+    return mask_histories
 
 
 @click.command("train")
@@ -173,7 +257,7 @@ def _main(config, logdir, model_dir, growth, use_mixed_precision, eager):
 
     logger.remove()
     fmt = "<cyan>[{time:YYYY-MM-DD:HH:mm:ss}]</> <level>{level} -- {message}</>"
-    logger.add(os.path.join(logdir, "train.log"), format=fmt)
+    logger.add(os.path.join(logdir, "finetune.log"), format=fmt)
     logger.add(sys.stderr, format=fmt, colorize=True)
 
     gin.parse_config_file(config)
@@ -181,14 +265,28 @@ def _main(config, logdir, model_dir, growth, use_mixed_precision, eager):
 
     tf.config.run_functions_eagerly(eager)
 
-    if growth:
-        enable_gpu_growth()
+    # seed = 42
+    # tf.random.set_seed(seed)
+
+    # if growth:
+    #     enable_gpu_growth()
 
     if use_mixed_precision:
         policy = mixed_precision.Policy("mixed_float16")
         mixed_precision.set_global_policy(policy)
 
-    finetune(logdir, model_dir)
+    results = []
+
+    d = 8
+
+    masks = np.stack([enumerate_mask(d, i) for i in range(2**d)])
+
+    results = finetune(logdir, model_dir, masks, steps=0, learning_rate=5e-5, validation_freq=5000, batch_size=32)
+
+    results = list(zip(*results))
+    logger.info(str(results))
+
+    np.save(os.path.join(logdir, "impute_results.npy"), np.array(results))
 
 
 if __name__ == "__main__":

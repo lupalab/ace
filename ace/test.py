@@ -10,7 +10,7 @@ from ace.evaluation import (
     evaluate_marginal_likelihoods,
     evaluate_imputation,
 )
-from ace.masking import BernoulliMaskGenerator
+from ace.masking import BernoulliMaskGenerator, FixedMaskGenerator
 from ace.utils import load_model, get_config_dict
 
 
@@ -99,7 +99,7 @@ def test(model_dir, run, num_trials, num_importance_samples, batch_size, num_ins
 
     dataset = dataset.batch(batch_size)
 
-    mask_generator = BernoulliMaskGenerator()
+    mask_generator = FixedMaskGenerator([[0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]])
 
     if "ac-likelihoods" in run:
         eval_dir = os.path.join(model_dir, "evaluations", "ac-likelihoods")
