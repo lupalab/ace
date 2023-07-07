@@ -3,6 +3,7 @@ from typing import Tuple
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
+import pdb
 
 from ace import ACEModel
 from ace.masking import MaskGenerator, get_add_mask_fn, get_add_marginal_masks_fn
@@ -25,11 +26,37 @@ def nrmse_score(
         A numpy array with shape `imputations.shape[:-2]` that contains the
         NRMSE scores.
     """
-    error = (imputations - true_data) ** 2
+    error = (imputations- true_data) ** 2
+    mse = np.sum(error, axis=-2) / np.count_nonzero(1.0 - observed_mask, axis=-2)
+
+    nrmse = np.sqrt(mse) / np.std(true_data, axis=-2)
+
+    # pdb.set_trace()
+
+    return np.nanmean(nrmse, axis=-1)
+
+def per_feature_nrmse_score(
+    imputations: np.ndarray, true_data: np.ndarray, observed_mask: np.ndarray
+) -> np.ndarray:
+    """Calculates the normalized root-mean-square error metric for imputed values.
+
+    Args:
+        imputations: A numpy array of shape `[..., num_instances, num_features]` that
+            contains the imputed data.
+        true_data: A numpy array of shape `[..., num_instances, num_features]` that
+            contains the ground truth data.
+        observed_mask: A numpy array of shape `[..., num_instances, num_features]` that
+            contains the binary mask indicating which features are observed.
+
+    Returns:
+        A numpy array with shape `imputations.shape[:-2]` that contains the
+        NRMSE scores.
+    """
+
+    error = (imputations- true_data) ** 2
     mse = np.sum(error, axis=-2) / np.count_nonzero(1.0 - observed_mask, axis=-2)
     nrmse = np.sqrt(mse) / np.std(true_data, axis=-2)
-    print(nrmse)
-    return np.nanmean(nrmse, axis=-1)
+    return nrmse
 
 
 def _evaluate_likelihoods(
@@ -145,5 +172,7 @@ def evaluate_imputation(
 
     energy_nrmse = nrmse_score(energy_imputations, x, observed_mask)
     proposal_nrmse = nrmse_score(proposal_imputations, x, observed_mask)
+
+    # per_feat_nrmse = per_feature_nrmse_score(proposal_imputations, x, observed_mask)
 
     return energy_nrmse, proposal_nrmse, energy_imputations, proposal_imputations

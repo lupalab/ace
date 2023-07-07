@@ -9,8 +9,16 @@ from ace.evaluation import (
     evaluate_ac_likelihoods,
     evaluate_marginal_likelihoods,
     evaluate_imputation,
+    nrmse_score
 )
-from ace.masking import BernoulliMaskGenerator, FixedMaskGenerator
+from ace.masking import (
+    BernoulliMaskGenerator, 
+    FixedMaskGenerator, 
+    MostlyFixedMaskGenerator, 
+    BatchFixedMaskGenerator, 
+    DualMaskGenerator,
+    enumerate_mask
+)
 from ace.utils import load_model, get_config_dict
 
 
@@ -90,6 +98,7 @@ def _save_likelihoods_json(
 )
 def test(model_dir, run, num_trials, num_importance_samples, batch_size, num_instances):
     model = load_model(model_dir)
+    model.trainable = False
 
     dataset = get_config_dict(model_dir)["train"]["dataset"]
     dataset = tfds.load(dataset)["test"].map(lambda x: x["features"])
@@ -99,11 +108,16 @@ def test(model_dir, run, num_trials, num_importance_samples, batch_size, num_ins
 
     dataset = dataset.batch(batch_size)
 
-    mask_generator = FixedMaskGenerator([[0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]])
+    mask_generator = FixedMaskGenerator([0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+    # mask_generator = BernoulliMaskGenerator(p=0.5)
+    # mask_generator = MostlyFixedMaskGenerator([[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]])
+    # mask_generator = BatchFixedMaskGenerator()
+    # mask_generator = DualMaskGenerator([[0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    #                                     [1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
 
     if "ac-likelihoods" in run:
         eval_dir = os.path.join(model_dir, "evaluations", "ac-likelihoods")
-        os.makedirs(eval_dir)
+        os.makedirs(eval_dir, exist_ok=True)
 
         energy_lls, proposal_lls = evaluate_ac_likelihoods(
             model,
@@ -165,13 +179,14 @@ def test(model_dir, run, num_trials, num_importance_samples, batch_size, num_ins
 
     if "imputation" in run:
         eval_dir = os.path.join(model_dir, "evaluations", "imputation")
-        os.makedirs(eval_dir)
+        os.makedirs(eval_dir, exist_ok=True)
 
         (
             energy_nrmse,
             proposal_nrmse,
             energy_imputations,
             proposal_imputations,
+            x,
         ) = evaluate_imputation(
             model,
             dataset,
@@ -204,7 +219,10 @@ def test(model_dir, run, num_trials, num_importance_samples, batch_size, num_ins
             print("Energy:   {:.3f}".format(data["energy_nrmse_mean"]))
             print("Proposal: {:.3f}".format(data["proposal_nrmse_mean"]))
             print("------------------------")
+        
+        imps_all.append(proposal_imputations)
+        x_all.append(x)
 
 
 if __name__ == "__main__":
-    test()
+    imps = test()

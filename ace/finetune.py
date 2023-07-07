@@ -6,6 +6,7 @@ import numpy as np
 
 import click
 import gin
+from tqdm import tqdm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from loguru import logger
@@ -14,24 +15,26 @@ from tensorflow.keras import mixed_precision
 from ace.ace_proposal import ACEModel
 from ace.masking import get_add_mask_fn, FixedMaskGenerator, BernoulliMaskGenerator, enumerate_mask
 from ace.utils import enable_gpu_growth, WarmUpCallback, get_config_dict
-from ace.evaluation import evaluate_imputation
+from ace.evaluation import evaluate_imputation, nrmse_score
 
 class FinetunePerformanceTracker:
     def __init__(self, eval_function):
         self.eval_function = eval_function
         self.performance_history = []
+        self.imputations = []
 
     def evaluate(self, *args):
-        result = self.eval_function(*args)
-        self.performance_history.append(result)
-        return result
+        score, imputations = self.eval_function(*args)
+        self.performance_history.append(score)
+        self.imputations.append(imputations)
+        return score
 
 
 def load_datasets(dataset, batch_size, noise_scale, mask_fn):
     ds = tfds.load(dataset)
     train = ds["train"].map(lambda x: x["features"]).shuffle(10000)
     val = ds["val"].map(lambda x: x["features"])
-    test = ds["test"].map(lambda x: x["features"])
+    test = ds["test"].map(lambda x: x["features"]) # .take(1000)
     train = train.batch(batch_size, drop_remainder=True).repeat()
     val = val.batch(batch_size)
     test = test.batch(batch_size)
@@ -44,7 +47,7 @@ def load_datasets(dataset, batch_size, noise_scale, mask_fn):
     add_mask_fn = get_add_mask_fn(mask_fn)
     train = train.map(add_mask_fn)
     val = val.map(add_mask_fn)
-    test = test.map(add_mask_fn)
+    # test = test.map(add_mask_fn)
 
     train = train.prefetch(tf.data.AUTOTUNE)
     val = val.prefetch(tf.data.AUTOTUNE)
@@ -90,8 +93,8 @@ def finetune(
         model = ACEModel(num_features)
     
     model.load_weights(os.path.join(model_dir, "weights.h5"))
-    # model._proposal_network.trainable = False
-    # model.finetune_layer.trainable = True
+    model._proposal_network.trainable = False
+    model.finetune_layer.trainable = True
     baseline_weights = model.finetune_layer.get_weights()
 
     baseline_kernel = baseline_weights[0]
@@ -131,7 +134,7 @@ def finetune(
 
         print(proposal_nrmse)
 
-        return np.mean(proposal_nrmse)
+        return np.mean(proposal_nrmse), proposal_imputations
 
 
     class LoggingCallback(tf.keras.callbacks.Callback):
@@ -150,7 +153,8 @@ def finetune(
 
     logger.info("Beginning training...")
 
-    mask_histories = []
+    mask_nrmses = []
+    mask_imps = []
 
     for m in range(len(masks)):
 
@@ -211,12 +215,18 @@ def finetune(
             ],
         )
 
-        mask_histories.append(tracker.performance_history)
+        mask_nrmses.append(tracker.performance_history)
+        mask_imps.append(tracker.imputations)
 
     # with open(os.path.join(logdir, "history.json"), "w") as fp:
     #     json.dump(history.history, fp)
 
-    return mask_histories
+    test_x = []
+    for x in tqdm(test_data):
+        test_x.append(x)
+    test_x = np.vstack(test_x)
+
+    return mask_nrmses, mask_imps, test_x
 
 
 @click.command("train")
@@ -278,15 +288,33 @@ def _main(config, logdir, model_dir, growth, use_mixed_precision, eager):
     results = []
 
     d = 8
+    n_masks = 100
 
-    masks = np.stack([enumerate_mask(d, i) for i in range(2**d)])
+    mask_list = [enumerate_mask(d, i) for i in np.random.choice(range(2**d-1), size=n_masks, replace=False)]
+    masks = np.stack(mask_list)
 
-    results = finetune(logdir, model_dir, masks, steps=0, learning_rate=5e-5, validation_freq=5000, batch_size=32)
+    results, imputations, data = finetune(logdir, model_dir, masks, steps=20000, learning_rate=5e-5, validation_freq=5000, batch_size=2048)
+
+    print(results)
+
+    observed_masks = np.concatenate([np.repeat(np.expand_dims(mask, 0), data.shape[0], axis=0) for mask in mask_list], axis=0)
+    x_copies = np.concatenate([data for _ in mask_list], axis=0)
+    imputations_start = np.concatenate([imp[0] for imp in imputations], axis=1)
+    imputations_end = np.concatenate([imp[-1] for imp in imputations], axis=1)
+
+    # results = [r[-1] for r in results]
+
+    print(results)
 
     results = list(zip(*results))
-    logger.info(str(results))
 
-    np.save(os.path.join(logdir, "impute_results.npy"), np.array(results))
+    print(results)
+
+    logger.info(f"Aggregate Untuned NRMSE: {nrmse_score(imputations_start, x_copies, observed_masks)}")
+    logger.info(f"Aggregate Finetuned NRMSE: {nrmse_score(imputations_end, x_copies, observed_masks)}")
+    # logger.info(str(results))
+
+    np.save(os.path.join(logdir, "impute_results.npy"), np.squeeze(np.array(results)))
 
 
 if __name__ == "__main__":

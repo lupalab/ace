@@ -30,14 +30,54 @@ class FixedMaskGenerator(MaskGenerator):
     def __init__(self, mask, **kwargs):
         super().__init__(**kwargs)
 
-        self.mask = mask
+        self.mask = np.array(mask).astype(self._dtype)
 
     def call(self, shape):
-        return np.stack([self.mask] * shape[0])
+        return np.stack([np.squeeze(self.mask)] * shape[0])
 
     # def __call__(self, shape):
     #     return self.call(shape)
 
+class MostlyFixedMaskGenerator(MaskGenerator):
+    def __init__(self, mask, **kwargs):
+        super().__init__(**kwargs)
+
+        self.mask = np.array(mask).astype(self._dtype)
+
+    def call(self, shape):
+
+        if np.random.random() < 0.01:
+            return self._rng.binomial(1, 0.5, size=shape)
+
+        return np.stack([np.squeeze(self.mask)] * shape[0])
+
+
+class BatchFixedMaskGenerator(MaskGenerator):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def call(self, shape):
+
+        mask = self._rng.binomial(1, 0.5, size=(1, shape[1]))
+
+        mask_stack = np.stack([np.squeeze(mask)] * shape[0])
+
+        return mask_stack
+    
+
+class DualMaskGenerator(MaskGenerator):
+    def __init__(self, masks, **kwargs):
+        super().__init__(**kwargs)
+        self.masks = np.array(masks)
+        # self.masks = self._rng.binomial(1, 0.5, size=mask.shape)
+
+    def call(self, shape):
+
+        mask_choice = np.round(np.random.random()).astype(int)
+
+        mask_stack = np.stack([np.squeeze(self.masks[mask_choice])] * shape[0])
+
+        return mask_stack
 
 class BernoulliMaskGenerator(MaskGenerator):
     def __init__(self, p=0.5, **kwargs):
